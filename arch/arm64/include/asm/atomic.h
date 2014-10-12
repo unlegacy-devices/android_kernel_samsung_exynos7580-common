@@ -104,6 +104,8 @@ _LD(  ldax8,  u8, "ldaxrb", "w")
 _STX( stlx8,  u8, "stlxrb", "w")
 _LD(   lda8,  u8,  "ldarb", "w")
 _STL(  stl8,  u8,  "stlrb", "w")
+#define cpu_relaxed_read_atomic(v) atomic_read(v)
+
 
 /*
  * AArch64 UP and SMP safe atomic ops.  We use load exclusive and
