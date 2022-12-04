@@ -7,6 +7,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/export.h>
+#include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/sched.h>
 #include <linux/writeback.h>
@@ -24,6 +25,17 @@
 //extern bool power_suspend_active;
 //extern bool dyn_fsync_active;
 #include <linux/powersuspend.h>
+#include <linux/dyn_sync_cntrl.h>
+#endif
+
+bool fsync_enabled = true;
+module_param(fsync_enabled, bool, 0755);
+
+#ifdef CONFIG_ASYNC_FSYNC
+#include <linux/statfs.h>
+#endif
+
+#ifdef CONFIG_DYNAMIC_FSYNC
 #include <linux/dyn_sync_cntrl.h>
 #endif
 
@@ -187,6 +199,9 @@ SYSCALL_DEFINE1(syncfs, int, fd)
 	struct fd f = fdget(fd);
 	struct super_block *sb;
 	int ret;
+	
+	if (!fsync_enabled)
+		return 0;
 
 	if (!f.file)
 		return -EBADF;
@@ -217,6 +232,8 @@ int vfs_fsync_range(struct file *file, loff_t start, loff_t end, int datasync)
 	if (likely(dyn_fsync_active && power_suspend_active))
 		return 0;
 #endif
+	if (!fsync_enabled)
+		return 0;
 	if (!file->f_op || !file->f_op->fsync)
 		return -EINVAL;
 	return file->f_op->fsync(file, start, end, datasync);
@@ -233,6 +250,9 @@ EXPORT_SYMBOL(vfs_fsync_range);
  */
 int vfs_fsync(struct file *file, int datasync)
 {
+	if (!fsync_enabled)
+		return 0;
+	
 	return vfs_fsync_range(file, 0, LLONG_MAX, datasync);
 }
 EXPORT_SYMBOL(vfs_fsync);
@@ -296,6 +316,9 @@ static int do_fsync(unsigned int fd, int datasync)
 {
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
+	if (!fsync_enabled)
+		return 0;
+	
 #ifdef CONFIG_ASYNC_FSYNC
         struct fsync_work *fwork;
 #endif
@@ -353,6 +376,8 @@ SYSCALL_DEFINE1(fsync, unsigned int, fd)
 	if (likely(dyn_fsync_active && power_suspend_active))
 		return 0;
 #endif
+	if (!fsync_enabled)
+		return 0;
 	return do_fsync(fd, 0);
 }
 
@@ -362,6 +387,8 @@ SYSCALL_DEFINE1(fdatasync, unsigned int, fd)
 	if (likely(dyn_fsync_active && power_suspend_active))
 		return 0;
 #endif
+	if (!fsync_enabled)
+		return 0;
 	return do_fsync(fd, 1);
 }
 
@@ -437,6 +464,9 @@ SYSCALL_DEFINE4(sync_file_range, int, fd, loff_t, offset, loff_t, nbytes,
 	struct address_space *mapping;
 	loff_t endbyte;			/* inclusive */
 	umode_t i_mode;
+	
+	if (!fsync_enabled)
+		return 0;
 
 #ifdef CONFIG_DYNAMIC_FSYNC
 	if (likely(dyn_fsync_active && power_suspend_active))
