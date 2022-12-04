@@ -320,7 +320,7 @@ static int do_fsync(unsigned int fd, int datasync)
 		return 0;
 	
 #ifdef CONFIG_ASYNC_FSYNC
-        struct fsync_work *fwork;
+	struct fsync_work *fwork;
 #endif
 
 	if (f.file) {
