@@ -322,7 +322,7 @@ static int do_fsync(unsigned int fd, int datasync)
 #ifdef CONFIG_ASYNC_FSYNC
 	struct fsync_work *fwork;
 #endif
-
+}
 	if (f.file) {
 #ifdef CONFIG_ASYNC_FSYNC
                 ktime_t fsync_t, fsync_diff;
