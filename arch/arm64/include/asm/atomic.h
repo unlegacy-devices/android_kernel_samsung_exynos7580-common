@@ -39,7 +39,7 @@
  */
 #define atomic_read(v)	(*(volatile int *)&(v)->counter)
 #define atomic_set(v,i)	(((v)->counter) = (i))
-#define cpu_relaxed_read_atomic(v)	ldax32((volatile int *)&(v->counter))
+#define cpu_relaxed_read_atomic(v) atomic_read(v)
 
 /*
  * Macros for generating inline functions to use special load and store
@@ -104,7 +104,6 @@ _LD(  ldax8,  u8, "ldaxrb", "w")
 _STX( stlx8,  u8, "stlxrb", "w")
 _LD(   lda8,  u8,  "ldarb", "w")
 _STL(  stl8,  u8,  "stlrb", "w")
-#define cpu_relaxed_read_atomic(v) atomic_read(v)
 
 
 /*
