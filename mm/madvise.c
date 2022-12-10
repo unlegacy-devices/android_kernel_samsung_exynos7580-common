@@ -221,10 +221,10 @@ static long madvise_willneed(struct vm_area_struct * vma,
 			     unsigned long start, unsigned long end)
 {
 	struct file *file = vma->vm_file;
-
+	
+	*prev = vma;
 #ifdef CONFIG_SWAP
 	if (!file || mapping_cap_swap_backed(file->f_mapping)) {
-		*prev = vma;
 		if (!file)
 			force_swapin_readahead(vma, start, end);
 		else
@@ -242,7 +242,6 @@ static long madvise_willneed(struct vm_area_struct * vma,
 		return 0;
 	}
 
-	*prev = vma;
 	start = ((start - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
 	if (end > vma->vm_end)
 		end = vma->vm_end;
