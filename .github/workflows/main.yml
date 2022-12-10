@@ -13,12 +13,14 @@ jobs:
 
     - name: Getting Toolchain
       run: |
-        sudo apt-get install lib32z1
+        sudo apt-get install lib32z1 ccache
         sudo git clone --depth 1 --branch android-8.1.0_r75 --single-branch https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 /opt/toolchains/aarch64-linux-android-4.9/
     - name: Building Kernel
       run: |
-        make -j2 lineageos_a3xelte_defconfig
-        make -j32
+        export KBUILD_BUILD_USER=notnoelchannel
+        export KBUILD_BUILD_HOST=unlegacy-devices
+        make -j22 lineageos_a3xelte_defconfig
+        make -j128
     - name: Moving Output # CI only
       run: |
         mkdir -p /home/runner/work/output
