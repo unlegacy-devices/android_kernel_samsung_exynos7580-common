@@ -128,6 +128,9 @@ static inline void tracepoint_synchronize_unregister(void)
 		struct tracepoint_func *it_func_ptr;			\
 		void *it_func;						\
 		void *__data;						\
+		if (!cpu_online(raw_smp_processor_id()))		\
+			return;						\
+									\
 									\
 		if (!(cond))						\
 			return;						\
