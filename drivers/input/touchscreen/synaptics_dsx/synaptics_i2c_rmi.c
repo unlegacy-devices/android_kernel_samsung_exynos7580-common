@@ -30,9 +30,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
-#endif
 #include <linux/sec_batt.h>
 
 #include <plat/gpio-cfg.h>
@@ -56,22 +53,13 @@ static void synaptics_rmi4_sensor_sleep(struct synaptics_rmi4_data *rmi4_data);
 static void synaptics_rmi4_sensor_wake(struct synaptics_rmi4_data *rmi4_data);
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static ssize_t synaptics_rmi4_full_pm_cycle_show(struct device *dev,
-		struct device_attribute *attr, char *buf);
-
-static ssize_t synaptics_rmi4_full_pm_cycle_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count);
-
-static void synaptics_rmi4_early_suspend(struct early_suspend *h);
-
-static void synaptics_rmi4_late_resume(struct early_suspend *h);
-
-#else
-
+#ifdef CONFIG_FB
 static int synaptics_rmi4_suspend(struct device *dev);
 
 static int synaptics_rmi4_resume(struct device *dev);
+
+static int fb_notifier_callback(struct notifier_block *self,
+		unsigned long event, void *rmi4_data);
 #endif
 
 #ifdef PROXIMITY_MODE
@@ -107,10 +95,6 @@ static ssize_t synaptics_rmi4_0dbutton_store(struct device *dev,
 
 
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static DEVICE_ATTR(full_pm_cycle, (S_IRUGO | S_IWUSR | S_IWGRP),
-			synaptics_rmi4_full_pm_cycle_show, synaptics_rmi4_full_pm_cycle_store);
-#endif
 #ifdef PROXIMITY_MODE
 static DEVICE_ATTR(proximity_enables, (S_IRUGO | S_IWUSR | S_IWGRP),
 			synaptics_rmi4_f51_enables_show, synaptics_rmi4_f51_enables_store);
@@ -141,30 +125,6 @@ static struct attribute_group attr_group = {
 	.attrs = attrs,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static ssize_t synaptics_rmi4_full_pm_cycle_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
-
-	return snprintf(buf, PAGE_SIZE, "%u\n",
-			rmi4_data->full_pm_cycle);
-}
-
-static ssize_t synaptics_rmi4_full_pm_cycle_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	unsigned int input;
-	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
-
-	if (sscanf(buf, "%u", &input) != 1)
-		return -EINVAL;
-
-	rmi4_data->full_pm_cycle = input > 0 ? 1 : 0;
-
-	return count;
-}
-#endif
 
 #ifdef PROXIMITY_MODE
 static ssize_t synaptics_rmi4_f51_enables_show(struct device *dev,
@@ -4235,11 +4195,9 @@ err_tsp_reboot:
 		goto err_fw_update;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	rmi4_data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN - 1;
-	rmi4_data->early_suspend.suspend = synaptics_rmi4_early_suspend;
-	rmi4_data->early_suspend.resume = synaptics_rmi4_late_resume;
-	register_early_suspend(&rmi4_data->early_suspend);
+#ifdef CONFIG_FB
+	rmi4_data->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&rmi4_data->fb_notif);
 #endif
 
 #ifdef SYNAPTICS_RMI_INFORM_CHARGER
@@ -4315,8 +4273,8 @@ static int synaptics_rmi4_remove(struct i2c_client *client)
 	struct synaptics_rmi4_device_info *rmi;
 
 	rmi = &(rmi4_data->rmi4_mod_info);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&rmi4_data->early_suspend);
+#ifdef CONFIG_FB
+	fb_unregister_client(&rmi4_data->fb_notif);
 #endif
 	synaptics_rmi4_irq_enable(rmi4_data, false);
 
@@ -4599,71 +4557,7 @@ static void synaptics_rmi4_input_close(struct input_dev *dev)
 }
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#define synaptics_rmi4_suspend NULL
-#define synaptics_rmi4_resume NULL
-
-/**
- * synaptics_rmi4_early_suspend()
- *
- * Called by the kernel during the early suspend phase when the system
- * enters suspend.
- *
- * This function calls synaptics_rmi4_sensor_sleep() to stop finger
- * data acquisition and put the sensor to sleep.
- */
-static void synaptics_rmi4_early_suspend(struct early_suspend *h)
-{
-	struct synaptics_rmi4_data *rmi4_data =
-			container_of(h, struct synaptics_rmi4_data,
-			early_suspend);
-
-	tsp_debug_dbg(false, &rmi4_data->i2c_client->dev, "%s\n", __func__);
-
-#ifdef USE_SENSOR_SLEEP
-	if (rmi4_data->use_deepsleep)
-		synaptics_rmi4_sensor_sleep(rmi4_data);
-	else
-#endif
-		synaptics_rmi4_stop_device(rmi4_data);
-
-	return;
-}
-
-/**
- * synaptics_rmi4_late_resume()
- *
- * Called by the kernel during the late resume phase when the system
- * wakes up from suspend.
- *
- * This function goes through the sensor wake process if the system wakes
- * up from early suspend (without going into suspend).
- */
-static void synaptics_rmi4_late_resume(struct early_suspend *h)
-{
-	int retval = 0;
-	struct synaptics_rmi4_data *rmi4_data =
-		container_of(h, struct synaptics_rmi4_data,
-				early_suspend);
-
-	tsp_debug_dbg(false, &rmi4_data->i2c_client->dev, "%s\n", __func__);
-
-#ifdef USE_SENSOR_SLEEP
-	if (rmi4_data->use_deepsleep) {
-		synaptics_rmi4_sensor_wake(rmi4_data);
-	} else
-#endif
-	{
-		retval = synaptics_rmi4_start_device(rmi4_data);
-		if (retval < 0)
-			tsp_debug_err(true, &rmi4_data->i2c_client->dev,
-					"%s: Failed to start device\n", __func__);
-	}
-
-	return;
-}
-#else
-
+#ifdef CONFIG_FB
 /**
  * synaptics_rmi4_suspend()
  *
@@ -4730,11 +4624,35 @@ static int synaptics_rmi4_resume(struct device *dev)
 
 	return 0;
 }
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct synaptics_rmi4_data *synaptics_rmi4_ts_data =
+		container_of(self, struct synaptics_rmi4_data, fb_notif);
+
+	if (evdata && evdata->data && event == FB_EVENT_BLANK &&
+		synaptics_rmi4_ts_data && synaptics_rmi4_ts_data->i2c_client) {
+		blank = evdata->data;
+		if (*blank == FB_BLANK_UNBLANK)
+			synaptics_rmi4_resume(&synaptics_rmi4_ts_data->i2c_client->dev);
+		else if (*blank == FB_BLANK_POWERDOWN)
+			synaptics_rmi4_suspend(&synaptics_rmi4_ts_data->i2c_client->dev);
+	}
+
+	return 0;
+}
 #endif
 
+#if (!defined(CONFIG_FB) && !defined(CONFIG_HAS_EARLYSUSPEND))
 static const struct dev_pm_ops synaptics_rmi4_dev_pm_ops = {
 	.suspend = synaptics_rmi4_suspend,
 	.resume  = synaptics_rmi4_resume,
+};
+#else
+static const struct dev_pm_ops synaptics_rmi4_dev_pm_ops = {
 };
 #endif
 
